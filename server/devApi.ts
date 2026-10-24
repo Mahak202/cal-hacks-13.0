@@ -1,8 +1,9 @@
 import type { Plugin } from 'vite'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import crypto from 'node:crypto'
-import { runRagWebBrowser, ogImage } from './apifyClient'
-import { createSandboxPayment } from './cybersourceClient'
+import { runRagWebBrowser, generateProductImage, searchShopping } from './apifyClient'
+import { createSandboxPayment, refundSandboxPayment } from './cybersourceClient'
+import { runAgentCommand } from './claudeAgent'
 
 function readJsonBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -25,41 +26,36 @@ function send(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body))
 }
 
-const STORE_DOMAINS: Record<string, string> = {
-  wayfair: 'wayfair.com', ikea: 'ikea.com', cb2: 'cb2.com', 'west elm': 'westelm.com',
-  article: 'article.com', 'pottery barn': 'potterybarn.com', etsy: 'etsy.com', target: 'target.com',
+const CATEGORY_LABELS: Record<string, string> = {
+  bed: 'bed', rug: 'rug', pendants: 'pendant lights', sideTables: 'side table',
+  bench: 'bench', planter: 'planter', artwork: 'wall art',
 }
 
 async function searchProducts({ category, style, store }: { category: string; style: string; store?: string }) {
-  // Scope the search to one retailer's domain with a site: operator — far
-  // more reliable than just mentioning the store name in the query text.
-  // "buy"/"for sale" and excluding Pinterest biases results toward actual
-  // shoppable listings instead of inspiration boards, which never have a
-  // price and otherwise crowd out real results for moodboard-y style names.
-  const domain = store ? STORE_DOMAINS[store.toLowerCase()] || `${store.toLowerCase().replace(/\s+/g, '')}.com` : undefined
-  const query = `buy ${style} ${category} furniture for sale price${domain ? ` site:${domain}` : ' -site:pinterest.com'}`.trim()
-  const items = await runRagWebBrowser({ query, maxResults: 5 })
-  const products = items
-    .map((item, i) => {
-      const text = item.markdown || ''
-      const priceMatch = text.match(/\$\s?([\d,]+(?:\.\d{2})?)/)
-      const pageUrl = item.metadata?.url
-      let host = ''
-      try {
-        host = pageUrl ? new URL(pageUrl).hostname.replace(/^www\./, '') : ''
-      } catch {}
-      return {
-        id: `live-${category}-${i}-${Date.now()}`,
-        name: item.metadata?.title || `${style} ${category}`,
-        category,
-        store: store || host || 'Web',
-        price: priceMatch ? Number(priceMatch[1].replace(/,/g, '')) : null,
-        url: pageUrl || '',
-        imageUrl: ogImage(item),
-        source: 'apify-live' as const,
-      }
-    })
-    .filter((p) => p.price !== null)
+  // Google Shopping Scraper queries Google's own shopping index rather than
+  // crawling retailer sites directly — real structured price/rating/seller
+  // per product (no regex-guessing), and it surfaces listings from sites
+  // (e.g. Wayfair) that block direct scraping outright. Store filtering
+  // happens post-hoc against the real `seller` field since the actor has
+  // no site-scoping input.
+  const label = CATEGORY_LABELS[category] || category
+  const searchTerm = `${style} ${label}${store ? ` ${store}` : ''}`.trim()
+  const results = await searchShopping(searchTerm, 8)
+  const filtered = store ? results.filter((r) => r.seller?.toLowerCase().includes(store.toLowerCase())) : results
+  const products = filtered
+    .filter((r) => r.price !== null)
+    .map((r, i) => ({
+      id: `live-${category}-${i}-${Date.now()}`,
+      name: r.title,
+      category,
+      store: r.seller || store || 'Web',
+      price: r.price!,
+      url: r.url || '',
+      imageUrl: r.image || '',
+      rating: r.rating ?? undefined,
+      reviewsCount: r.reviewsCount ?? undefined,
+      source: 'apify-live' as const,
+    }))
   return { products }
 }
 
@@ -79,10 +75,41 @@ async function visaCheckout({ store, amount }: { store: string; amount: number }
   return { transactionId: result.id, status: result.status }
 }
 
+async function visaRefund({ transactionId, amount, store }: { transactionId: string; amount: number; store: string }) {
+  const referenceCode = `refund-${store.replace(/\s+/g, '-')}-${crypto.randomUUID()}`
+  const result = await refundSandboxPayment({ transactionId, amount, referenceCode })
+  console.log(`[dev-api] /api/visa/refund — CyberSource response id=${result.id} status=${result.status}`)
+  return { refundId: result.id, status: result.status }
+}
+
+async function agentCommand({ message, context, history }: { message: string; context: Record<string, unknown>; history?: { role: 'user' | 'assistant'; content: string }[] }) {
+  return runAgentCommand(message, context, history ?? [])
+}
+
+async function generateImage({ prompt }: { prompt: string }) {
+  return generateProductImage(prompt)
+}
+
+// Keyed by product id so every catalog product is only ever generated once
+// per server session, no matter how many times/places it's rendered.
+const productImageCache = new Map<string, Promise<{ dataUrl: string }>>()
+async function productImage({ id, prompt }: { id: string; prompt: string }) {
+  if (!productImageCache.has(id)) {
+    const promise = generateProductImage(prompt)
+    promise.catch(() => productImageCache.delete(id)) // don't cache failures
+    productImageCache.set(id, promise)
+  }
+  return productImageCache.get(id)!
+}
+
 const ROUTES: Record<string, (body: any) => Promise<unknown>> = {
   '/api/apify/search-products': searchProducts,
   '/api/apify/inspiration': scrapeInspiration,
+  '/api/apify/generate-image': generateImage,
+  '/api/apify/product-image': productImage,
   '/api/visa/checkout': visaCheckout,
+  '/api/visa/refund': visaRefund,
+  '/api/agent/command': agentCommand,
 }
 
 /** Dev-only backend for Apify + Visa calls, so API secrets stay off the client. */

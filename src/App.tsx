@@ -4,6 +4,7 @@ import { styleMatch, type AgentMessage } from '../agents/mockAgents'
 import { RoomwiseProvider, useRoomwise } from '../state/RoomwiseContext'
 import { fetchInspiration, type Inspiration } from '../services/apify'
 import SpatialCanvas, { LibraryPanel } from './SpatialCanvas'
+import ProductThumb from './ProductThumb'
 import './AgentFeatures.css'
 import './LayoutFixes.css'
 import './DemoAssets.css'
@@ -68,7 +69,7 @@ function PersonalizePanel() {
  }
  return <><PanelTitle n="03" title="Make it yours" text="Select an object, then swap it with a shoppable piece."/>
  <div className="category-tabs">{cats.map(c=><button className={s.category===c?'active':''} onClick={()=>s.setCategory(c)} key={c}>{c}</button>)}</div>
- <div className="product-list">{list.map(p=><button className={s.selected[p.category]===p.id?'selected':''} onClick={()=>s.selectProduct(p.id)} key={p.id}><div className="product-art">{p.styleTags.includes('live')&&p.imageUrl?<img src={p.imageUrl} alt={p.name} onError={e=>{(e.target as HTMLImageElement).style.display='none'}}/>:p.category.slice(0,1).toUpperCase()}</div><span><b>{p.name}</b><small>{p.store} · {p.material}{p.styleTags.includes('live')?' · Live via Apify':''}</small><strong>${p.price.toLocaleString()}</strong></span><em>{p.tier}</em></button>)}</div>
+ <div className="product-list">{list.map(p=><button className={s.selected[p.category]===p.id?'selected':''} onClick={()=>s.selectProduct(p.id)} key={p.id}><ProductThumb p={p} className="product-art"/><span><b>{p.name}</b><small>{p.store} · {p.material}{p.rating?` · ★${p.rating} (${p.reviewsCount?.toLocaleString()||0})`:p.styleTags.includes('live')?' · Live via Apify':''}</small><strong>${p.price.toLocaleString()}</strong></span><em>{p.tier}</em></button>)}</div>
  <div className="ask">
   <input list="live-store-options" value={liveStore} onChange={e=>setLiveStore(e.target.value)} placeholder="Any store (or type one, e.g. Etsy)" onKeyDown={e=>e.key==='Enter'&&runShopLive()}/>
   <datalist id="live-store-options">{liveStoreSuggestions.map(x=><option key={x} value={x}/>)}</datalist>

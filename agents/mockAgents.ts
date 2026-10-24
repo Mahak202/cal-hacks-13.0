@@ -9,6 +9,7 @@ export type AgentMessage = {
 }
 let id = 1
 const msg = (agent: AgentKind, text: string, detail?: string, extra:Partial<AgentMessage>={}): AgentMessage => ({ id: id++, agent, text, detail, ...extra })
+export const agentSpeak = (agent: AgentKind, text: string): AgentMessage => msg(agent, text)
 const tiers:Tier[]=['premium','mid','budget']
 const styleTags:Record<string,string[]> = {
   'Wabi-Sabi Warmth':['wabi-sabi','warm','natural','earthy','artisan'],

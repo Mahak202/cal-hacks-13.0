@@ -3,6 +3,7 @@ import type { Category } from '../data/products'
 export type LiveProduct = {
   id: string; name: string; category: Category; store: string
   price: number; url: string; imageUrl: string; source: 'apify-live'
+  rating?: number; reviewsCount?: number
 }
 
 export async function fetchLiveProducts(category: Category, style: string, store?: string): Promise<LiveProduct[]> {

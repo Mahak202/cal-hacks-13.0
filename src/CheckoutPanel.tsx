@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { products } from '../data/products'
 import { approvalNeededAgent, financeCompleteAgent, financeDecisionAgent, financeStartedAgent, financeStoppedAgent, mandateAuthorizedAgent } from '../agents/financeAgent'
 import { createMerchantOrders, deliveryDate, installmentPlans, mockOrderNumber, ORDER_STAGES, validateMandate, type Mandate, type MerchantOrder, type PaymentMode } from '../services/payments'
-import { runVisaCheckout } from '../services/visa'
+import { runVisaCheckout, runVisaRefund } from '../services/visa'
 import { useRoomwise } from '../state/RoomwiseContext'
 
 const wait=(ms:number)=>new Promise(r=>setTimeout(r,ms))
@@ -38,6 +38,19 @@ export default function CheckoutPanel(){
  const approve=()=>{if(awaiting===null)return;const i=awaiting;setAwaiting(null);stamp(`Approved ${orders[i].store}`,`One-tap approval for $${orders[i].total.toLocaleString()}.`);finish(i,orders)}
  const skip=()=>{if(awaiting===null)return;const i=awaiting;const next=orders.map((o,n)=>n===i?{...o,status:'skipped' as const}:o);setOrders(next);setAwaiting(null);stamp(`Skipped ${orders[i].store}`,'User chose not to place this order.');process(i+1,next)}
  const cheaper=()=>{if(awaiting===null)return;const order=orders[awaiting],old=order.items[0],replacement=products.find(p=>p.category===old.category&&p.tier==='budget')!;s.selectProduct(replacement.id);const saving=old.price-replacement.price;const updated={...order,items:[replacement,...order.items.slice(1)],subtotal:order.subtotal-saving,total:order.total-saving,tax:Math.round((order.subtotal-saving)*.09375),savings:order.savings+saving,status:'pending' as const};const next=orders.map((o,i)=>i===awaiting?updated:o);setOrders(next);setAwaiting(null);stamp(`Found a cheaper ${old.category}`,`${replacement.name} saves $${saving.toLocaleString()}; re-checking mandate.`);process(active,next)}
+ const requestRefund=async(orderId:string)=>{
+  const order=orders.find(o=>o.id===orderId);if(!order||!order.visaTransactionId||order.refundId||order.refunding)return
+  setOrders(v=>v.map(o=>o.id===orderId?{...o,refunding:true,refundError:undefined}:o))
+  try{
+   const{refundId}=await runVisaRefund(order.visaTransactionId,order.total,order.store)
+   setOrders(v=>v.map(o=>o.id===orderId?{...o,refunding:false,refundId}:o))
+   stamp(`Refunded ${order.store} order`,`CyberSource refund txn ${refundId} · $${order.total.toLocaleString()}`)
+   s.postAgent(financeDecisionAgent(`Refunded the ${order.store} order.`,`CyberSource refund confirmed: ${refundId}`))
+  }catch(err:any){
+   setOrders(v=>v.map(o=>o.id===orderId?{...o,refunding:false,refundError:err?.message||'Refund failed'}:o))
+   stamp(`Refund failed for ${order.store}`,err?.message||'Unknown error')
+  }
+ }
  const paid=orders.filter(o=>o.status==='confirmed').reduce((n,o)=>n+o.total,0),saved=Math.max(0,s.originalTotal-s.total)+orders.reduce((n,o)=>n+o.savings,0)
  const plans=installmentPlans(s.grandTotal)
  return <div className="checkout"><div className="panel-title"><span>06</span><h1>Checkout</h1><p>Your Finance Agent follows your rules, store by store.</p></div>
@@ -49,5 +62,5 @@ export default function CheckoutPanel(){
  {!orders.length&&!complete&&<button className="primary checkout-go" onClick={start}>Place order</button>}
  {!!orders.length&&<div className="merchant-list">{orders.map((o,i)=><div className={`merchant ${o.status}`}><div><b>{o.store}</b><span>${o.total.toLocaleString()}</span></div><small>{o.items.length} item{o.items.length!==1?'s':''} · Tax ${o.tax} · Delivery ${o.delivery}</small>{active===i&&o.status!=='approval'&&<div className="stage-line">{ORDER_STAGES.map((x,n)=><span className={n<=stage?'done':''}>{n<stage?'✓':n===stage?'•':'○'} {x}</span>)}</div>}{o.event&&<em>{o.event}</em>}{o.orderNumber&&<strong>{o.orderNumber}</strong>}</div>)}</div>}
  {awaiting!==null&&<div className="approval-card"><b>{orders[awaiting].event?.includes('Stock')?'Approve in-stock alternative?':`Approve $${orders[awaiting].total.toLocaleString()} order at ${orders[awaiting].store}?`}</b><div><button onClick={approve}>Approve</button><button onClick={skip}>Skip</button><button onClick={cheaper}>Find cheaper</button></div></div>}
- {complete&&<div className="confirmation"><h3>Checkout complete</h3><div className="paid-summary"><span><small>Total paid</small><b>${paid.toLocaleString()}</b></span><span><small>Total saved</small><b>${saved.toLocaleString()}</b></span><span><small>Orders</small><b>{orders.filter(o=>o.status==='confirmed').length}</b></span></div><div className="ledger"><i style={{width:`${Math.min(100,paid/mandate.totalLimit*100)}%`}}/><label>Budget ${mandate.totalLimit.toLocaleString()} · Paid ${paid.toLocaleString()} · Remaining ${Math.max(0,mandate.totalLimit-paid).toLocaleString()}</label></div><h4>Receipts & delivery</h4>{orders.filter(o=>o.status==='confirmed').map((o,i)=><div className="receipt"><span><b>{o.store}</b><small>{o.orderNumber} · Arrives {deliveryDate(i)}</small>{o.visaTransactionId?<small>CyberSource sandbox txn {o.visaTransactionId}</small>:o.visaSimulated?<small>CyberSource sandbox unreachable · simulated</small>:null}</span><button onClick={()=>window.print()}>Download receipt</button></div>)}<h4>Agent activity</h4><div className="audit">{log.map(x=><div><time>{x.time}</time><span><b>{x.text}</b><small>{x.reason}</small></span></div>)}</div></div>}</>}</div>
+ {complete&&<div className="confirmation"><h3>Checkout complete</h3><div className="paid-summary"><span><small>Total paid</small><b>${paid.toLocaleString()}</b></span><span><small>Total saved</small><b>${saved.toLocaleString()}</b></span><span><small>Orders</small><b>{orders.filter(o=>o.status==='confirmed').length}</b></span></div><div className="ledger"><i style={{width:`${Math.min(100,paid/mandate.totalLimit*100)}%`}}/><label>Budget ${mandate.totalLimit.toLocaleString()} · Paid ${paid.toLocaleString()} · Remaining ${Math.max(0,mandate.totalLimit-paid).toLocaleString()}</label></div><h4>Receipts & delivery</h4>{orders.filter(o=>o.status==='confirmed').map((o,i)=><div className="receipt" key={o.id}><span><b>{o.store}</b><small>{o.orderNumber} · Arrives {deliveryDate(i)}</small>{o.visaTransactionId?<small>CyberSource sandbox txn {o.visaTransactionId}</small>:o.visaSimulated?<small>CyberSource sandbox unreachable · simulated</small>:null}{o.refundId&&<small>Refunded · CyberSource txn {o.refundId}</small>}{o.refundError&&<small>Refund failed: {o.refundError}</small>}</span><div className="receipt-actions"><button onClick={()=>window.print()}>Download receipt</button>{o.visaTransactionId&&!o.refundId&&<button disabled={o.refunding} onClick={()=>requestRefund(o.id)}>{o.refunding?'Refunding…':'Refund'}</button>}</div></div>)}<h4>Agent activity</h4><div className="audit">{log.map(x=><div><time>{x.time}</time><span><b>{x.text}</b><small>{x.reason}</small></span></div>)}</div></div>}</>}</div>
 }

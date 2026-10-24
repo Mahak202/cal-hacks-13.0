@@ -1,6 +1,6 @@
 import cybersourceRestApi from 'cybersource-rest-client'
 
-const { PaymentsApi, CreatePaymentRequest } = cybersourceRestApi as any
+const { PaymentsApi, CreatePaymentRequest, RefundApi, RefundPaymentRequest } = cybersourceRestApi as any
 
 // Visa Acceptance Solutions (CyberSource) merchant sandbox — HTTP Signature
 // auth via the official cybersource-rest-client SDK. Sandbox host:
@@ -57,6 +57,26 @@ export function createSandboxPayment(input: { amount: number; currency?: string;
         return
       }
       console.log(`[cybersource] payment id=${data?.id} status=${data?.status}`)
+      resolve({ id: data?.id, status: data?.status, reconciliationId: data?.reconciliationId })
+    })
+  })
+}
+
+export function refundSandboxPayment(input: { transactionId: string; amount: number; currency?: string; referenceCode: string }): Promise<SandboxPaymentResult> {
+  return new Promise((resolve, reject) => {
+    const apiInstance = new RefundApi(merchantConfig())
+    const request = new RefundPaymentRequest()
+    request.clientReferenceInformation = { code: input.referenceCode }
+    request.orderInformation = {
+      amountDetails: { totalAmount: input.amount.toFixed(2), currency: input.currency ?? 'USD' },
+    }
+    apiInstance.refundPayment(request, input.transactionId, (error: any, data: any, response: any) => {
+      if (error) {
+        const body = response?.text || response?.body || error.message || String(error)
+        reject(new Error(`CyberSource refund failed: ${body}`))
+        return
+      }
+      console.log(`[cybersource] refund id=${data?.id} status=${data?.status}`)
       resolve({ id: data?.id, status: data?.status, reconciliationId: data?.reconciliationId })
     })
   })

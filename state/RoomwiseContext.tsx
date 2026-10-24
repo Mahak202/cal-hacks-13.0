@@ -1,9 +1,10 @@
 import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import { products, premiumSelection, registerLiveProducts, type Category } from '../data/products'
-import { budgetAlreadyAgent, budgetEditAgent, budgetSummaryAgent, budgetSwapAgent, comparisonAgent, designAgent, designReply, planRoomBudget, productInspectAgent, productSwapAgent, quotationAgent, unknownAgent, wabiSabiAgent, type AgentMessage, type Swap } from '../agents/mockAgents'
+import { agentSpeak, budgetAlreadyAgent, budgetEditAgent, budgetSummaryAgent, budgetSwapAgent, comparisonAgent, designAgent, designReply, planRoomBudget, productInspectAgent, productSwapAgent, quotationAgent, unknownAgent, wabiSabiAgent, type AgentKind, type AgentMessage, type Swap } from '../agents/mockAgents'
 import { fetchLiveProducts, type LiveProduct } from '../services/apify'
+import { runAgentCommand as callClaudeAgent, type HistoryTurn } from '../services/claude'
 
-export type MyItem = { id: string; name: string; height: number; kind: 'imported' | 'generated' }
+export type MyItem = { id: string; name: string; height: number; kind: 'imported' | 'generated'; imageUrl?: string }
 export type RoomItem = { id:string; productId:string; category:Category; x:number; z:number; rotation:number }
 type Store = {
   step:number;maxStep:number;setStep:(n:number)=>void;budget:number;setBudget:(n:number)=>void
@@ -14,7 +15,7 @@ type Store = {
   libraryOpen:boolean;setLibraryOpen:(v:boolean)=>void;inspectProduct:(c:Category)=>void
   myItems:MyItem[];addMyItem:(item:Omit<MyItem,'id'>)=>void
   selectedObject:Category|null;highlightCategory:Category|null;placedItems:string[];placeMyItem:(id:string)=>void
-  compareProducts:(ids:string[])=>void;runCommand:(text:string)=>void;revertSwap:(swap:Swap)=>void
+  compareProducts:(ids:string[])=>void;runCommand:(text:string)=>Promise<void>;revertSwap:(swap:Swap)=>void
   undoAll:()=>void;originalTotal:number;budgetRan:boolean;wallTone:number
   quoteScreenshot:string;setQuoteScreenshot:(v:string)=>void;postQuote:()=>void
   roomBuilt:boolean;roomItems:RoomItem[];selectedItemId:string|null;setSelectedItemId:(id:string|null)=>void
@@ -43,6 +44,7 @@ export function RoomwiseProvider({children}:{children:ReactNode}){
  const [paidTotal,setPaidTotal]=useState(0),[checkoutSaved,setCheckoutSaved]=useState(0)
  const [liveLoading,setLiveLoading]=useState(false)
  const captureTimer=useRef<ReturnType<typeof setTimeout>|null>(null)
+ const agentHistoryRef=useRef<HistoryTurn[]>([])
  const total=useMemo(()=>roomItems.reduce((sum,item)=>sum+(products.find(p=>p.id===item.productId)?.price||0),0),[roomItems])
  const tax=Math.round(total*.09375),delivery=new Set(roomItems.map(item=>products.find(p=>p.id===item.productId)?.store)).size*49,grandTotal=total+tax+delivery
  const post=(message:AgentMessage,delay=0)=>setTimeout(()=>{setTyping(true);setTimeout(()=>{setMessages(v=>[...v,message]);setTyping(false)},700)},delay)
@@ -80,7 +82,57 @@ export function RoomwiseProvider({children}:{children:ReactNode}){
    setLiveLoading(false)
   }
  }
- const runCommand=(raw:string)=>{
+ const TOOL_HANDLERS:Record<string,(input:any)=>void>={
+  swap_tier:({category,tier})=>{
+   const p=products.find(p=>p.category===category&&p.tier===tier);if(!p)return
+   const existing=roomItems.find(i=>i.category===category)
+   if(existing){const old=products.find(x=>x.id===existing.productId)!;commit(roomItems.map(i=>i.id===existing.id?{...i,productId:p.id}:i));setSelected(v=>({...v,[category]:p.id}));post(productSwapAgent(p.name,p.price-old.price))}
+   else addProduct(p.id)
+  },
+  add_item:({category})=>{
+   // Every category is pre-populated when the room is first built, so
+   // "add X" almost always finds one already there — treat that as "add
+   // one more" (duplicate) rather than silently asking a clarifying
+   // question the user didn't ask for.
+   const existing=roomItems.find(i=>i.category===category)
+   if(existing)duplicateItem(existing.id)
+   else{const p=products.find(p=>p.category===category&&p.tier==='mid');if(p)addProduct(p.id)}
+  },
+  remove_item:({category})=>{const item=roomItems.find(i=>i.category===category);if(item)deleteItem(item.id);else post(designReply(`There's no ${category} in the room to remove.`))},
+  duplicate_item:({category})=>{const existing=roomItems.find(i=>i.category===category);if(existing)duplicateItem(existing.id);else post(designReply(`There's no ${category} in the room yet to duplicate.`))},
+  change_style:({style:newStyle})=>{if(newStyle&&newStyle!==style)setStyle(newStyle)},
+  adjust_wall_tone:({direction})=>{const warm=direction==='warmer';setWallTone(v=>v+(warm?1:-1));post(designReply(`I shifted the walls ${warm?'warmer':'cooler'}.`,'The room finish has been updated live.'))},
+  optimize_budget:({targetAmount})=>{const target=typeof targetAmount==='number'?targetAmount:budget;if(typeof targetAmount==='number')setBudget(target);optimize(target)},
+  undo_budget_swaps:()=>undoAll(),
+  undo_last_action:()=>undo(),
+  inspect_product:({category})=>inspectProduct(category),
+  compare_category:({category})=>compareProducts(products.filter(p=>p.category===category).map(p=>p.id)),
+  shop_live:({category,store})=>{shopLive(category,store).catch(()=>{})},
+  create_quote:()=>{setStep(5);post(quotationAgent(grandTotal))},
+  go_to_step:({step:target})=>{if(typeof target==='number')setStep(Math.max(1,Math.min(6,Math.round(target))))},
+  speak:({agent,text}:{agent:AgentKind;text:string})=>{if(agent&&text)post(agentSpeak(agent,text))},
+ }
+ const runCommand=async(raw:string)=>{
+  setTyping(true)
+  const context={
+   style,budget,roomTotal:grandTotal,
+   roomItems:roomItems.map(i=>{const p=products.find(x=>x.id===i.productId);return p?{category:i.category,name:p.name,price:p.price,tier:p.tier,store:p.store}:null}).filter(Boolean),
+  }
+  try{
+   const{reply,toolCalls}=await callClaudeAgent(raw,context,agentHistoryRef.current)
+   if(reply)post(designReply(reply))
+   if(toolCalls.length)toolCalls.forEach(call=>TOOL_HANDLERS[call.name]?.(call.input))
+   else if(!reply)runCommandFallback(raw)
+   const spoken=toolCalls.filter(c=>c.name==='speak').map(c=>(c.input as any).text).filter(Boolean)
+   const actions=toolCalls.filter(c=>c.name!=='speak').map(c=>`${c.name}(${JSON.stringify(c.input)})`)
+   const summary=[...spoken,reply,actions.length?`Did: ${actions.join(', ')}`:''].filter(Boolean).join(' ')||'(no action taken)'
+   agentHistoryRef.current=[...agentHistoryRef.current,{role:'user' as const,content:raw},{role:'assistant' as const,content:summary}].slice(-16)
+  }catch(err:any){
+   console.warn('Claude agent command failed, falling back to keyword parser:',err)
+   runCommandFallback(raw)
+  }
+ }
+ const runCommandFallback=(raw:string)=>{
   const text=raw.toLowerCase();const aliases:Record<Category,string[]>={
    bed:['bed'],rug:['rug'],pendants:['pendant','light','lamp'],sideTables:['side table','sidetable','table','nightstand'],
    bench:['bench'],planter:['planter','olive','tree','plant'],artwork:['art','canvas','painting'],
