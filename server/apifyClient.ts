@@ -60,12 +60,15 @@ export async function generateProductImage(prompt: string): Promise<{ dataUrl: s
 export type ShoppingResult = {
   title: string
   price: number | null
+  oldPrice: number | null
   currency: string | null
   seller: string | null
   rating: number | null
   reviewsCount: number | null
+  availability: string | null
   image: string | null
   url: string | null
+  scrapedAt: string
 }
 
 // cheapapi/google-shopping-scraper: queries Google's own Shopping index
@@ -81,14 +84,18 @@ export async function searchShopping(searchTerm: string, maxResults = 8): Promis
   })
   if (!res.ok) throw new Error(`Apify shopping run failed: ${res.status} ${await res.text()}`)
   const items = (await res.json()) as any[]
+  const scrapedAt = new Date().toISOString()
   return items.map((it) => ({
     title: it.title ?? '',
     price: typeof it.price === 'number' ? it.price : null,
+    oldPrice: typeof it.oldPrice === 'number' ? it.oldPrice : null,
     currency: it.currency ?? null,
     seller: it.seller ?? null,
     rating: typeof it.rating === 'number' ? it.rating : null,
     reviewsCount: typeof it.reviewsCount === 'number' ? it.reviewsCount : null,
+    availability: it.condition ?? it.delivery ?? null,
     image: it.image ?? null,
     url: it.googleShoppingUrl ?? it.url ?? null,
+    scrapedAt: it.scrapedAt ?? scrapedAt,
   }))
 }

@@ -1,7 +1,7 @@
 import type { Plugin } from 'vite'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import crypto from 'node:crypto'
-import { runRagWebBrowser, generateProductImage, searchShopping } from './apifyClient'
+import { runRagWebBrowser, generateProductImage, searchShopping, type ShoppingResult } from './apifyClient'
 import { createSandboxPayment, refundSandboxPayment } from './cybersourceClient'
 import { runAgentCommand } from './claudeAgent'
 
@@ -31,32 +31,66 @@ const CATEGORY_LABELS: Record<string, string> = {
   bench: 'bench', planter: 'planter', artwork: 'wall art',
 }
 
-async function searchProducts({ category, style, store }: { category: string; style: string; store?: string }) {
-  // Google Shopping Scraper queries Google's own shopping index rather than
-  // crawling retailer sites directly — real structured price/rating/seller
-  // per product (no regex-guessing), and it surfaces listings from sites
-  // (e.g. Wayfair) that block direct scraping outright. Store filtering
-  // happens post-hoc against the real `seller` field since the actor has
-  // no site-scoping input.
+// Store filtering happens post-hoc against the real `seller` field since the
+// Google Shopping Scraper has no site-scoping input — appending the store
+// name to the search term biases results toward it, then we filter.
+async function searchOneStore(baseTerm: string, store: string): Promise<ShoppingResult[]> {
+  const results = await searchShopping(`${baseTerm} ${store}`.trim(), 8)
+  return results.filter((r) => r.seller?.toLowerCase().includes(store.toLowerCase()))
+}
+
+function idFromUrl(category: string, url: string, fallback: string): string {
+  // A real hash, not a truncated base64 encoding — these URLs commonly
+  // share a long identical prefix (same Google Shopping search base), so
+  // truncating the encoded string instead of hashing it collided every
+  // product in a result set onto the same id.
+  const key = url || fallback
+  const hash = crypto.createHash('sha1').update(key).digest('base64url').slice(0, 16)
+  return `live-${category}-${hash}`
+}
+
+async function searchProducts({ category, style, stores, store, query }: { category: string; style: string; stores?: string[]; store?: string; query?: string }) {
   const label = CATEGORY_LABELS[category] || category
-  const searchTerm = `${style} ${label}${store ? ` ${store}` : ''}`.trim()
-  const results = await searchShopping(searchTerm, 8)
-  const filtered = store ? results.filter((r) => r.seller?.toLowerCase().includes(store.toLowerCase())) : results
-  const products = filtered
-    .filter((r) => r.price !== null)
-    .map((r, i) => ({
-      id: `live-${category}-${i}-${Date.now()}`,
-      name: r.title,
-      category,
-      store: r.seller || store || 'Web',
-      price: r.price!,
-      url: r.url || '',
-      imageUrl: r.image || '',
-      rating: r.rating ?? undefined,
-      reviewsCount: r.reviewsCount ?? undefined,
-      source: 'apify-live' as const,
-    }))
-  return { products }
+  const baseTerm = (query || `${style} ${label}`).trim()
+  const selectedStores = stores?.length ? stores : store ? [store] : undefined
+
+  let raw: ShoppingResult[] = []
+  const warnings: string[] = []
+  if (selectedStores) {
+    // One scoped search per selected retailer, in parallel — each store gets
+    // a genuine chance to surface instead of one combined query possibly
+    // missing some of them entirely.
+    const outcomes = await Promise.allSettled(selectedStores.map((s) => searchOneStore(baseTerm, s)))
+    outcomes.forEach((outcome, i) => {
+      if (outcome.status === 'fulfilled') raw.push(...outcome.value)
+      else warnings.push(`${selectedStores[i]} search failed: ${outcome.reason?.message || 'unknown error'}`)
+    })
+  } else {
+    raw = await searchShopping(baseTerm, 8)
+  }
+
+  const priced = raw.filter((r) => r.price !== null && r.url)
+  // Dedupe by original product URL (the same real item can surface from
+  // multiple search terms), then sort cheapest-first.
+  const deduped = [...new Map(priced.map((r) => [r.url as string, r])).values()]
+  deduped.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity))
+
+  const products = deduped.map((r, i) => ({
+    id: idFromUrl(category, r.url || '', `${i}-${Date.now()}`),
+    name: r.title,
+    category,
+    store: r.seller || 'Web',
+    price: r.price!,
+    originalPrice: r.oldPrice,
+    availability: r.availability ?? undefined,
+    url: r.url || '',
+    imageUrl: r.image || '',
+    rating: r.rating ?? undefined,
+    reviewsCount: r.reviewsCount ?? undefined,
+    scrapedAt: r.scrapedAt,
+    source: 'apify-live' as const,
+  }))
+  return { products, meta: { searchedStores: selectedStores || ['any'], returnedCount: products.length, warnings } }
 }
 
 async function scrapeInspiration({ url }: { url: string }) {

@@ -24,7 +24,7 @@ type Store = {
   undo:()=>void;redo:()=>void;canUndo:boolean;canRedo:boolean
   beginTransform:()=>void;dragging:boolean;setDragging:(v:boolean)=>void
   postAgent:(m:AgentMessage,delay?:number)=>void;paidTotal:number;checkoutSaved:number;setCheckoutSummary:(paid:number,saved:number)=>void
-  shopLive:(category:Category,store?:string)=>Promise<LiveProduct[]>;liveLoading:boolean
+  shopLive:(category:Category,stores?:string[],query?:string)=>Promise<LiveProduct[]>;liveLoading:boolean
 }
 const Context=createContext<Store|null>(null)
 const initialTotal=Object.values(premiumSelection).reduce((sum,id)=>sum+(products.find(p=>p.id===id)?.price||0),0)
@@ -67,14 +67,15 @@ export function RoomwiseProvider({children}:{children:ReactNode}){
  const revertSwap=(swap:Swap)=>{setSelected(v=>({...v,[swap.category]:swap.from.id}));setHighlightCategory(swap.category);setTimeout(()=>setHighlightCategory(null),900);post(designReply(`Reverted ${swap.category} to ${swap.from.name}.`))}
  const undoAll=()=>{if(snapshot){setSelected(snapshot);setBudgetRan(false);setSnapshot(null);post(designReply('All budget swaps have been undone.'))}}
  const compareProducts=(ids:string[])=>post(comparisonAgent(ids.map(id=>products.find(p=>p.id===id)!),style))
- const shopLive=async(targetCategory:Category,targetStore?:string):Promise<LiveProduct[]>=>{
+ const shopLive=async(targetCategory:Category,targetStores?:string[],query?:string):Promise<LiveProduct[]>=>{
   setLiveLoading(true)
-  const label=targetStore?`${targetStore} `:''
+  const label=targetStores?.length?`${targetStores.join(', ')} `:''
   try{
-   const items=await fetchLiveProducts(targetCategory,style,targetStore)
-   registerLiveProducts(items)
-   post(designReply(items.length?`Found ${items.length} live ${label}${targetCategory} listing${items.length===1?'':'s'} via Apify.`:`Apify didn't find priced ${label}${targetCategory} listings for this search — try another store or leave it blank for any store.`))
-   return items
+   const result=await fetchLiveProducts(targetCategory,style,targetStores,query)
+   registerLiveProducts(result.products)
+   const warningNote=result.warnings.length?` ${result.warnings.join(' ')}`:''
+   post(designReply(result.products.length?`Found ${result.products.length} live ${label}${targetCategory} listing${result.products.length===1?'':'s'} via Apify.${warningNote}`:`Apify didn't find priced ${label}${targetCategory} listings for this search.${warningNote}`))
+   return result.products
   }catch(err:any){
    post(designReply(`Couldn't fetch live listings: ${err?.message||err}`))
    throw err
@@ -107,7 +108,7 @@ export function RoomwiseProvider({children}:{children:ReactNode}){
   undo_last_action:()=>undo(),
   inspect_product:({category})=>inspectProduct(category),
   compare_category:({category})=>compareProducts(products.filter(p=>p.category===category).map(p=>p.id)),
-  shop_live:({category,store})=>{shopLive(category,store).catch(()=>{})},
+  shop_live:({category,store})=>{shopLive(category,store?[store]:undefined).catch(()=>{})},
   create_quote:()=>{setStep(5);post(quotationAgent(grandTotal))},
   go_to_step:({step:target})=>{if(typeof target==='number')setStep(Math.max(1,Math.min(6,Math.round(target))))},
   speak:({agent,text}:{agent:AgentKind;text:string})=>{if(agent&&text)post(agentSpeak(agent,text))},

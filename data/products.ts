@@ -4,6 +4,7 @@ export type Product = {
  id:string;name:string;category:Category;store:string;price:number;url:string;imageUrl:string
  material:string;durability:number;styleTags:string[];tier:Tier
  rating?:number;reviewsCount?:number
+ originalPrice?:number|null;availability?:string;scrapedAt?:string
 }
 const catalog:Record<Category,[number,number,number]>={
  bed:[1690,890,429],rug:[640,260,119],pendants:[360,160,58],sideTables:[340,150,69],
@@ -29,7 +30,7 @@ export const premiumSelection=Object.fromEntries((Object.keys(catalog) as Catego
 // Apify-sourced live listings get merged into this same array (by id) so the
 // existing budget/swap/checkout logic — which all reads from `products` —
 // picks them up without any changes.
-export function registerLiveProducts(items:{id:string;name:string;category:Category;store:string;price:number;url:string;imageUrl:string;rating?:number;reviewsCount?:number}[]){
+export function registerLiveProducts(items:{id:string;name:string;category:Category;store:string;price:number;url:string;imageUrl:string;rating?:number;reviewsCount?:number;originalPrice?:number|null;availability?:string;scrapedAt?:string}[]){
  for(const item of items){
   if(products.some(p=>p.id===item.id))continue
   // Real rating (0-5 stars) stands in for the heuristic durability dots

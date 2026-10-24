@@ -9,6 +9,7 @@ export type MerchantOrder = {
   status:'pending'|'approval'|'confirmed'|'skipped';orderNumber?:string;event?:string;savings:number
   visaTransactionId?:string;visaSimulated?:boolean
   refundId?:string;refunding?:boolean;refundError?:string
+  approvalMode?:'autonomous'|'human'
 }
 export type InstallmentPlan={id:string;label:string;payments:number;monthly:number;interest:number;total:number;recommended?:boolean}
 export const ORDER_STAGES=['Checking price','Checking stock','Applying best promo','Placing order','Confirmed'] as const

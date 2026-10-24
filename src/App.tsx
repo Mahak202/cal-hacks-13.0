@@ -27,7 +27,7 @@ function Header() {
   const s = useRoomwise(); return <header className="topbar">
     <div className="brand"><span className="brandmark"><Mark/></span><span>Roomwise</span><em>AI spatial studio</em></div>
     <nav className="steps">{steps.map((x,i)=>{const done=i+1<s.maxStep;return <button disabled={!s.roomBuilt&&i===3} key={x} onClick={()=>{s.setStep(i+1);s.setLibraryOpen(false)}} className={s.step===i+1?'active':done?'done':''}><span>{done?'✓':i+1}</span>{x}</button>})}</nav>
-    <div className="top-actions"><span className="test-badge">Test mode · no real charges</span><div className={`total-pill ${!s.paidTotal&&s.total>s.budget?'over':''}`}><i/> {s.paidTotal?<>Paid ${s.paidTotal.toLocaleString()} <span>· Saved ${s.checkoutSaved.toLocaleString()}</span></>:<>${s.total.toLocaleString()} <span>/ ${s.budget.toLocaleString()}</span></>}</div></div>
+    <div className="top-actions"><span className="test-badge">CyberSource sandbox · real API calls, no real money</span><div className={`total-pill ${!s.paidTotal&&s.total>s.budget?'over':''}`}><i/> {s.paidTotal?<>Paid ${s.paidTotal.toLocaleString()} <span>· Saved ${s.checkoutSaved.toLocaleString()}</span></>:<>${s.total.toLocaleString()} <span>/ ${s.budget.toLocaleString()}</span></>}</div></div>
   </header>
 }
 function CapturePanel() {
@@ -55,25 +55,24 @@ function InspirePanel() {
  <label className="section-label">CURATED DIRECTIONS</label>
  <div className="style-list">{Object.entries(palettes).map(([name,colors])=><button key={name} onClick={()=>s.setStyle(name)} className={s.style===name?'selected':''}><div className="mini-palette">{colors.map(c=><i key={c} style={{background:c}}/>)}</div><span><b>{name}</b><small>{name==='Wabi-Sabi Warmth'?'From your inspiration':name==='Coastal Light'?'Chalk walls · fixed herringbone':'Oat walls · fixed herringbone'}</small></span><em>✓</em></button>)}</div></>
 }
-const liveStoreSuggestions=['Wayfair','IKEA','CB2','West Elm','Article','Pottery Barn','Etsy','Target']
+const liveStores=['Wayfair','IKEA','Target','CB2','West Elm','Article','Pottery Barn','Etsy']
 function PersonalizePanel() {
  const s=useRoomwise(); const list=products.filter(p=>p.category===s.category)
- const [liveStore,setLiveStore]=useState(''),[liveMsg,setLiveMsg]=useState('')
+ const [liveStoresSelected,setLiveStoresSelected]=useState<string[]>(['Wayfair','IKEA','Target']),[liveQuery,setLiveQuery]=useState(''),[liveMsg,setLiveMsg]=useState('')
  const runShopLive=async()=>{
   setLiveMsg('')
-  const store=liveStore.trim()
   try{
-   const items=await s.shopLive(s.category,store||undefined)
-   setLiveMsg(items.length?`Added ${items.length} live result${items.length===1?'':'s'}${store?` from ${store}`:''} — see them in the list above.`:`No priced results${store?` for ${store}`:''}. Some big retailers (e.g. Wayfair) block scrapers — try another store or leave it blank for any store.`)
+   const items=await s.shopLive(s.category,liveStoresSelected,liveQuery.trim()||undefined)
+   setLiveMsg(items.length?`Found ${items.length} live result${items.length===1?'':'s'} from ${liveStoresSelected.join(', ')} — see them in the list above.`:`No priced results from the selected retailers. Try different stores or a broader search.`)
   }catch(err:any){setLiveMsg(`Couldn't fetch live listings: ${err?.message||err}`)}
  }
  return <><PanelTitle n="03" title="Make it yours" text="Select an object, then swap it with a shoppable piece."/>
  <div className="category-tabs">{cats.map(c=><button className={s.category===c?'active':''} onClick={()=>s.setCategory(c)} key={c}>{c}</button>)}</div>
- <div className="product-list">{list.map(p=><button className={s.selected[p.category]===p.id?'selected':''} onClick={()=>s.selectProduct(p.id)} key={p.id}><ProductThumb p={p} className="product-art"/><span><b>{p.name}</b><small>{p.store} · {p.material}{p.rating?` · ★${p.rating} (${p.reviewsCount?.toLocaleString()||0})`:p.styleTags.includes('live')?' · Live via Apify':''}</small><strong>${p.price.toLocaleString()}</strong></span><em>{p.tier}</em></button>)}</div>
+ <div className="product-list">{list.map(p=><div className={s.selected[p.category]===p.id?'product-row selected':'product-row'} key={p.id}><button onClick={()=>s.selectProduct(p.id)}><ProductThumb p={p} className="product-art"/><span><b>{p.name}</b><small>{p.store} · {p.material}{p.rating?` · ★${p.rating} (${p.reviewsCount?.toLocaleString()||0})`:p.styleTags.includes('live')?' · Live via Apify':''}</small><strong>{p.originalPrice&&p.originalPrice>p.price&&<s>${p.originalPrice.toLocaleString()}</s>}${p.price.toLocaleString()}</strong></span><em>{p.tier}</em></button>{p.styleTags.includes('live')&&p.url&&<a href={p.url} target="_blank" rel="noopener noreferrer">View original ↗</a>}</div>)}</div>
+ <div className="live-store-picker"><span>SEARCH RETAILERS</span><div>{liveStores.map(store=><label key={store}><input type="checkbox" checked={liveStoresSelected.includes(store)} onChange={()=>setLiveStoresSelected(v=>v.includes(store)?v.filter(x=>x!==store):[...v,store])}/>{store}</label>)}</div></div>
  <div className="ask">
-  <input list="live-store-options" value={liveStore} onChange={e=>setLiveStore(e.target.value)} placeholder="Any store (or type one, e.g. Etsy)" onKeyDown={e=>e.key==='Enter'&&runShopLive()}/>
-  <datalist id="live-store-options">{liveStoreSuggestions.map(x=><option key={x} value={x}/>)}</datalist>
-  <button disabled={s.liveLoading} onClick={runShopLive}>{s.liveLoading?'…':'🔎 Shop live (Apify)'}</button>
+  <input value={liveQuery} onChange={e=>setLiveQuery(e.target.value)} placeholder="Search products, e.g. oak platform bed" onKeyDown={e=>e.key==='Enter'&&runShopLive()}/>
+  <button disabled={s.liveLoading||!liveStoresSelected.length} onClick={runShopLive}>{s.liveLoading?'…':'🔎 Search live'}</button>
  </div>
  {liveMsg&&<Tip>{liveMsg}</Tip>}
  <div className="ask"><input placeholder="Ask the Design Agent…"/><button>↑</button></div><div className="suggestions">{['Make the walls warmer','Replace the rug with something affordable','Show me the exact lamp used'].map(x=><button key={x}>{x}</button>)}</div></>
