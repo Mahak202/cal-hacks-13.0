@@ -1,4 +1,4 @@
-export type Category = 'bed'|'rug'|'pendants'|'sideTables'|'bench'|'planter'|'artwork'
+export type Category = 'bed'|'rug'|'pendants'|'sideTables'|'bench'|'planter'|'artwork'|'curtains'|'chair'|'fan'|'outdoorPlanter'|'outdoorChair'|'pergola'|'stringLights'
 export type Tier = 'premium'|'mid'|'budget'
 export type Product = {
  id:string;name:string;category:Category;store:string;price:number;url:string;imageUrl:string
@@ -8,7 +8,9 @@ export type Product = {
 }
 const catalog:Record<Category,[number,number,number]>={
  bed:[1690,890,429],rug:[640,260,119],pendants:[360,160,58],sideTables:[340,150,69],
- bench:[520,240,99],planter:[380,170,65],artwork:[450,180,45],
+ bench:[520,240,99],planter:[380,170,65],artwork:[450,180,45],curtains:[420,140,49],
+ chair:[680,320,89],fan:[560,240,99],
+ outdoorPlanter:[280,120,45],outdoorChair:[540,260,95],pergola:[2400,1100,180],stringLights:[90,45,19],
 }
 const details:Record<Category,{names:string[];stores:string[];materials:string[]}>={
  bed:{names:['Drommen Reclaimed Platform Bed','Lenia Low Oak Bed','Tarva Lightwood Platform'],stores:['CB2','Article','IKEA'],materials:['Reclaimed oak & linen','Solid oak','Light pine']},
@@ -18,6 +20,13 @@ const details:Record<Category,{names:string[];stores:string[];materials:string[]
  bench:{names:['Folsom Reclaimed Bed Bench','Plank Oak Bench','Natural Wood Bench'],stores:['Pottery Barn','West Elm','Target'],materials:['Reclaimed wood','FSC oak','Rubberwood']},
  planter:{names:['Heritage Olive Tree & Stone Pot','Faux Olive in Cement Pot','Olive Tree & Resin Planter'],stores:['Etsy','West Elm','Target'],materials:['Live olive & stoneware','Faux olive & cement','Faux olive & resin']},
  artwork:{names:['Earth Study Original Canvas','Neutral Fields Canvas','Textured Abstract Print'],stores:['Etsy','CB2','Wayfair'],materials:['Pigment on raw canvas','Hand-painted canvas','Printed canvas']},
+ curtains:{names:['Oatmeal Linen Drapery Pair','Sheer White Voile Panels','Grey Roller Blind'],stores:['Pottery Barn','IKEA','Target'],materials:['Heavy linen','Sheer voile','Grey textile']},
+ chair:{names:['Bentwood Cane Chair','Bouclé Lounge Chair','Black Café Chair'],stores:['Etsy','West Elm','IKEA'],materials:['Bentwood & cane','Cream bouclé','Powder-coated steel']},
+ fan:{names:['Rattan Light Wood Fan','Aerated White Fan','Compact Black Fan'],stores:['Rejuvenation','Wayfair','Home Depot'],materials:['Walnut & rattan','White composite','Black steel']},
+ outdoorPlanter:{names:['Cedar Lavender Planter','Acacia Grass Planter','Compact Flower Box'],stores:['Terrain','Wayfair','Target'],materials:['Cedar & lavender','Acacia & grasses','Pine & flowers']},
+ outdoorChair:{names:['Teak Outdoor Lounge Chair','Aluminium Patio Chair','Folding Bistro Chair'],stores:['Article','West Elm','IKEA'],materials:['Teak & canvas','Aluminium & mesh','Powder-coated steel']},
+ pergola:{names:['Cedar Slatted Pergola','Aluminium Pergola','Canvas Shade Sail'],stores:['Yardistry','Wayfair','IKEA'],materials:['Solid cedar','Aluminium','Outdoor canvas']},
+ stringLights:{names:['Brass Café String Lights','Warm Patio Lights','Compact LED String'],stores:['Pottery Barn','Target','IKEA'],materials:['Brass & glass','Black cable & glass','LED & PVC']},
 }
 const tiers:Tier[]=['premium','mid','budget']
 export const products:Product[]=(Object.keys(catalog) as Category[]).flatMap(category=>catalog[category].map((price,i)=>({

@@ -4,8 +4,8 @@ export type AgentKind = 'Design' | 'Product' | 'Budget' | 'Comparison' | 'Quotat
 export type Swap = { category: Category; from: Product; to: Product; saving: number }
 export type AgentMessage = {
   id: number; agent: AgentKind; text: string; detail?: string
-  kind?: 'swap'|'budget-summary'|'comparison'|'quote'; swap?: Swap
-  products?: Product[]; original?: number; total?: number; saved?: number; swaps?: number
+  kind?: 'swap'|'budget-summary'|'comparison'|'quote'|'payment-complete'; swap?: Swap
+  products?: Product[]; original?: number; total?: number; saved?: number; swaps?: number; orders?: number
 }
 let id = 1
 const msg = (agent: AgentKind, text: string, detail?: string, extra:Partial<AgentMessage>={}): AgentMessage => ({ id: id++, agent, text, detail, ...extra })
@@ -33,13 +33,13 @@ export function planBudget(selected:Record<Category,string>,budget:number,style:
   }
   return {swaps,selection:working,total:price()}
 }
-export function planRoomBudget(items:{id:string;productId:string;category:Category}[],budget:number,style:string){
+export function planRoomBudget(items:{id:string;productId:string;category:Category|'custom'}[],budget:number,style:string){
  const working=items.map(i=>({...i}));const swaps:(Swap&{itemId:string})[]=[];const price=()=>working.reduce((n,i)=>n+(products.find(p=>p.id===i.productId)?.price||0),0)
- while(price()>budget){const options=working.flatMap(item=>{const from=products.find(p=>p.id===item.productId)!;const index=tiers.indexOf(from.tier);if(index===tiers.length-1)return[];const to=products.find(p=>p.category===item.category&&p.tier===tiers[index+1])!;const loss=Math.max(0,styleMatch(from,style)-styleMatch(to,style));return[{itemId:item.id,category:item.category,from,to,saving:from.price-to.price,score:(from.price-to.price)/(1+loss/20)}]}).sort((a,b)=>b.score-a.score);if(!options.length)break;const best=options[0];working.find(i=>i.id===best.itemId)!.productId=best.to.id;swaps.push(best)}
+ while(price()>budget){const options=working.flatMap(item=>{const from=products.find(p=>p.id===item.productId);if(!from||item.category==='custom')return[];const index=tiers.indexOf(from.tier);if(index===tiers.length-1)return[];const to=products.find(p=>p.category===item.category&&p.tier===tiers[index+1])!;const loss=Math.max(0,styleMatch(from,style)-styleMatch(to,style));return[{itemId:item.id,category:item.category,from,to,saving:from.price-to.price,score:(from.price-to.price)/(1+loss/20)}]}).sort((a,b)=>b.score-a.score);if(!options.length)break;const best=options[0];working.find(i=>i.id===best.itemId)!.productId=best.to.id;swaps.push(best)}
  return{swaps,total:price()}
 }
-export const designAgent = () => msg('Design', "I found an empty 14×16 ft room with an 11 ft beamed ceiling, a tall arched window, and light oak herringbone floors. I'll keep the window, beams and floor as fixed features while we design.")
-export const wabiSabiAgent = () => msg('Design','Applied Wabi-Sabi Warmth from your inspiration: limewash walls, reclaimed wood, linen and jute, with warm afternoon light. I kept your arched window, beams and herringbone floor.')
+export const designAgent = (length=16,width=14,height=11) => msg('Design', `I found an empty ${Number(width.toFixed(1))}×${Number(length.toFixed(1))} ft room with a ${Number(height.toFixed(1))} ft beamed ceiling, a tall arched window, and light oak herringbone floors. I'll keep the window, beams and floor as fixed features while we design.`)
+export const wabiSabiAgent = () => msg('Design',"This looks like Wabi-Sabi: raw wood, linen, limewash and imperfect natural forms. I've applied it to your room.")
 export const designReply = (text:string,detail?:string) => msg('Design',text,detail)
 export const unknownAgent = () => msg('Design',"I can help restyle walls, find a cheaper item, identify products, optimize your budget, or create a quote.",'Try one of the suggestions below.')
 export const productInspectAgent = (p:Product) => msg('Product',`This is the ${p.name} from ${p.store}, $${p.price.toLocaleString()}. Want cheaper or similar options?`,p.url)

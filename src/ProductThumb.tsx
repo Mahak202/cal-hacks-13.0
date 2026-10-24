@@ -7,7 +7,7 @@ import { getProductImage } from '../services/productImages'
 // so a product is only ever paid-for/generated once per session regardless
 // of how many places it's shown.
 export default function ProductThumb({ p, className, children }: { p: Product; className: string; children?: React.ReactNode }) {
-  const [url, setUrl] = useState(p.styleTags.includes('live') ? p.imageUrl : '')
+  const [url, setUrl] = useState(p.imageUrl && p.imageUrl !== '/inspo-wabisabi.jpg' ? p.imageUrl : '')
   useEffect(() => {
     if (url) return
     let active = true
