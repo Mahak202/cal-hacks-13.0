@@ -1,0 +1,10 @@
+{
+  "description": "Transform bedroom photos into editable 3D designs, shop matching furniture, and optimize costs with AI-generated budgets and quotes.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
