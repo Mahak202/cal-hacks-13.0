@@ -4,6 +4,7 @@ import crypto from 'node:crypto'
 import { runRagWebBrowser, generateProductImage, searchShopping, type ShoppingResult } from './apifyClient'
 import { createSandboxPayment, refundSandboxPayment } from './cybersourceClient'
 import { runAgentCommand } from './claudeAgent'
+import { analyzeProductImage } from './openRouterClient'
 
 function readJsonBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -120,6 +121,12 @@ async function agentCommand({ message, context, history }: { message: string; co
   return runAgentCommand(message, context, history ?? [])
 }
 
+async function analyzeProduct({ name, category, imageUrl, style }: { name: string; category: string; imageUrl: string; style: string }) {
+  if (!name || !category) throw new Error('Product name and category are required.')
+  if (!imageUrl || !/^https?:\/\//.test(imageUrl)) throw new Error('A valid product image URL is required.')
+  return { analysis: await analyzeProductImage({ name, category, imageUrl, style: style || 'any' }) }
+}
+
 async function generateImage({ prompt }: { prompt: string }) {
   return withImageSlot(() => generateProductImage(prompt))
 }
@@ -162,6 +169,7 @@ const ROUTES: Record<string, (body: any) => Promise<unknown>> = {
   '/api/visa/checkout': visaCheckout,
   '/api/visa/refund': visaRefund,
   '/api/agent/command': agentCommand,
+  '/api/ai/analyze-product': analyzeProduct,
 }
 
 /** Dev-only backend for Apify + Visa calls, so API secrets stay off the client. */

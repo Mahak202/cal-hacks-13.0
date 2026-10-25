@@ -1,4 +1,4 @@
-# Roomwise — AI Spatial Design Studio
+# LumaSpace — AI Spatial Design Studio
 
 Built at Cal Hacks 13.0. Upload a photo of an empty room, pick a design style, furnish it in an editable 3D scene, shop real products from the live web, optimize the design against a budget, and check out through a real payment sandbox — all narrated by a team of specialist AI agents (Design, Product, Budget, Comparison, Quotation, Finance), driven by a real LLM.
 
@@ -6,8 +6,10 @@ Built at Cal Hacks 13.0. Upload a photo of an empty room, pick a design style, f
 
 - **Capture → Inspire → Personalize → Budget → Quote → Checkout** — a full six-step flow from an empty-room photo to a placed order.
 - **Editable 3D room** (React Three Fiber) — drag, rotate, duplicate, and delete furniture; swap pieces live; Before/After and Photo/Orbit/Plan/Walk camera modes.
-- **Claude-powered chat agent** — the "Message your agents…" box is driven by Claude with real tool-calling (13 actions: swap tiers, remove/duplicate items, change style, adjust wall tone, optimize budget, undo, inspect, compare, shop live, create a quote, navigate steps, or just converse). It keeps conversation memory across turns (so "no, undo that" resolves correctly) and replies under the correct specialist badge (Design/Product/Budget/etc.) via a dedicated `speak` tool. Falls back to a simpler keyword-based parser if the API key is missing or a call fails — the app never breaks either way.
+- **Claude-powered chat agent** — the "Message your agents…" box is driven by Claude with real tool-calling (15 actions: add/remove/duplicate items, swap tiers, change style, adjust wall tone, optimize budget, undo budget swaps, undo last action, inspect, compare, shop live, create a quote, navigate steps, or just converse). It keeps conversation memory across turns (so "no, undo that" resolves correctly) and replies under the correct specialist badge (Design/Product/Budget/etc.) via a dedicated `speak` tool. Falls back to a simpler keyword-based parser if the API key is missing or a call fails — the app never breaks either way.
+- **Real-time collaboration** — invite a partner or teammate into the same room via a shareable link (no server component, same-origin `BroadcastChannel`). See live presence and cursors, pin comments to objects, vote on style/budget options, and control exactly what each collaborator can do — view only, edit, or approve purchases.
 - **Live shopping via Apify (Google Shopping Scraper)** — the "Search live" box in the Personalize step lets you pick one or more retailers (checkboxes) plus an optional free-text query, searches them in parallel, and queries Google's own shopping index for real, structured price/seller/rating/review-count data — not scraped/guessed text. Results are normalized, deduplicated by original product URL, sorted by current price, and include a direct **View original ↗** link back to the real listing. Because it goes through Google's index rather than crawling retailer sites directly, it surfaces listings from stores (e.g. Wayfair) that block direct scraping outright. Real ratings also feed the existing comparison-table "durability" display for live items. Prices, images, and availability can change on the retailer site, so verify the final details there before purchasing.
+- **AI vision analysis of live listings (OpenRouter)** — any live, Apify-sourced search result has an **AI analyze** button in the Library that sends its real scraped photo to an OpenRouter vision model, which looks at the actual image and reports what it sees (materials, color, form) plus whether it fits your current room style — not a description inferred from the listing text. Without `OPENROUTER_API_KEY`, it falls back to a clearly-labeled category placeholder instead of breaking.
 - **Real AI-generated product images (Apify)** — every product shown anywhere in the app (the full static catalog, live search results, and custom "Generate with AI" library items) gets a real generated photo via Apify's FLUX-based image actor, cached per product so each one is only ever generated once per session.
 - **Inspiration scraping via Apify** — pasting a URL in the Inspire step scrapes real page content (`apify/rag-web-browser`) for style/mood extraction.
 - **Budget Agent** — automatically swaps pieces to premium/mid/budget tiers to hit a target budget while minimizing style-match loss.
@@ -29,9 +31,10 @@ See `services/payments.ts` (mandate/order logic), `src/CheckoutPanel.tsx` (the a
 
 - React 19 + Vite 8 + TypeScript, Tailwind CSS v4
 - `@react-three/fiber` / `@react-three/drei` / `three` for the 3D room
-- A small dev-only backend (`server/`, a Vite middleware plugin) that proxies Anthropic, Apify, and CyberSource calls server-side so API secrets never reach the browser
+- A small dev-only backend (`server/`, a Vite middleware plugin) that proxies Anthropic, Apify, OpenRouter, and CyberSource calls server-side so API secrets never reach the browser
 - [`@anthropic-ai/sdk`](https://www.npmjs.com/package/@anthropic-ai/sdk) — Claude (Sonnet) with tool use, powering the chat agent
 - [`cybersource-rest-client`](https://www.npmjs.com/package/cybersource-rest-client) — official SDK for the CyberSource sandbox
+- OpenRouter (OpenAI-compatible chat completions API) — vision-language analysis of live Apify product photos
 - Apify actors: `apify/rag-web-browser` (inspiration scraping), `cheapapi/google-shopping-scraper` (live product search), `akash9078/ai-image-generator` (product image generation)
 
 ## Getting started
@@ -64,6 +67,8 @@ Fill in `.env` with:
 |---|---|
 | `APIFY_TOKEN` | [Apify Console → Integrations](https://console.apify.com/account/integrations) — powers live shopping search, product image generation, and inspiration scraping |
 | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/settings/keys) — powers the tool-calling chat agent |
+| `OPENROUTER_API_KEY` | [openrouter.ai/keys](https://openrouter.ai/keys) — powers vision analysis of live Apify product photos |
+| `OPENROUTER_VISION_MODEL` | Optional model override, defaults to `google/gemini-3.8-flash` |
 | `VISA_MERCHANT_ID` | Your CyberSource / Visa Acceptance Solutions sandbox Merchant/Organization ID |
 | `VISA_KEY_ID` | REST API Key ID from the same sandbox account |
 | `VISA_SHARED_SECRET` | REST API Shared Secret Key from the same sandbox account |
@@ -94,8 +99,8 @@ src/                     React UI — App.tsx is the main screen, SpatialCanvas.
 state/                   RoomwiseContext.tsx — all app state (room, budget, chat agent, checkout) in one context
 agents/                  mockAgents.ts / financeAgent.ts — the rich agent chat-message generators (swap cards, budget summaries, comparison tables) that both the LLM agent and the keyword fallback post into
 data/products.ts         The curated furniture catalog (premium/mid/budget tiers); live Apify results get merged into this same array at runtime
-services/                Frontend API clients: claude.ts (chat agent), apify.ts (live shopping/inspiration), imageGen.ts / productImages.ts (image generation + caching), visa.ts (checkout/refunds), payments.ts (mandate/order logic)
-server/                  Dev-only backend: claudeAgent.ts (tool-calling agent), apifyClient.ts, cybersourceClient.ts, devApi.ts (the Vite middleware that routes /api/* to all of them)
+services/                Frontend API clients: claude.ts (chat agent), apify.ts (live shopping/inspiration), imageGen.ts / productImages.ts (image generation + caching), openrouter.ts (vision analysis), visa.ts (checkout/refunds), payments.ts (mandate/order logic)
+server/                  Dev-only backend: claudeAgent.ts (tool-calling agent), apifyClient.ts, openRouterClient.ts (vision analysis), cybersourceClient.ts, devApi.ts (the Vite middleware that routes /api/* to all of them)
 ```
 
 ## Known limitations
@@ -107,4 +112,4 @@ server/                  Dev-only backend: claudeAgent.ts (tool-calling agent), 
 
 ## Credits
 
-Built for Cal Hacks 13.0. Sponsor tech: [Apify](https://apify.com) (live shopping, product image generation, content scraping) and [Visa / CyberSource](https://developer.cybersource.com) (sandbox payments and refunds).
+Built for Cal Hacks 13.0. Sponsor tech: [Apify](https://apify.com) (live shopping, product image generation, content scraping), [Visa / CyberSource](https://developer.cybersource.com) (sandbox payments and refunds), [Anthropic](https://www.anthropic.com) (Claude, tool-calling agent), and [OpenRouter](https://openrouter.ai) (vision analysis of live product photos).
