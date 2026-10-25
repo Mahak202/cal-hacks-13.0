@@ -13,6 +13,18 @@ Built at Cal Hacks 13.0. Upload a photo of an empty room, pick a design style, f
 - **Budget Agent** — automatically swaps pieces to premium/mid/budget tiers to hit a target budget while minimizing style-match loss.
 - **Real sandbox checkout + refunds via CyberSource (Visa Acceptance Solutions)** — the Finance Agent's "Place order" step authorizes a spending mandate (total limit, per-item cap, auto-approve threshold), then calls the actual CyberSource sandbox (`POST /pts/v2/payments`, HTTP Signature auth, test card `4111 1111 1111 1111`) per store and shows the real sandbox transaction ID on the receipt. Each confirmed receipt also has a **Refund** button that fires a real `POST /pts/v2/payments/{id}/refunds` against that transaction — a genuine charge-then-refund round trip, not just a one-way charge. The confirmation screen reports exactly how many orders the agent approved **autonomously** within its mandate versus how many needed your sign-off (and how many it skipped for exceeding the mandate), plus how many settled via a real sandbox call versus a simulated fallback if the sandbox was unreachable — an accurate, auditable account of what the agent actually did, not a flat "no real charges were made" placeholder.
 
+## Hyphenate track — "The Hyphenated Enterprise: Autonomous Systems for Finance"
+
+Hyphenate's own product is an enterprise finance-automation platform (order-to-cash, procure-to-pay, treasury, GL close) that runs on top of a company's existing ERP — it has no public, hackathon-facing API, so there's nothing to literally "call." What we built instead is the same architectural pattern Hyphenate is built around, proven with real payment rails rather than a mocked-up demo:
+
+- **Autonomous by default.** The Finance Agent executes under a human-authorized mandate (total spending limit, per-item cap, auto-approve threshold, allowed merchants). Any order that fits the mandate is checked, priced, and paid with zero clicks — the agent doesn't ask permission for routine work, matching Hyphenate's "agents do the routine work on their own."
+- **Escalation on judgment calls, not silent overrides.** The instant an order exceeds the auto-approve threshold, exceeds the per-item/total limit, or targets a merchant outside the mandate, the agent stops and surfaces exactly why — offering Approve / Skip / Find cheaper. It never spends past the boundary a human set.
+- **Real money movement, not UI theater.** Every autonomous or approved order fires an actual CyberSource (Visa Acceptance Solutions) sandbox payment through the official REST SDK and gets back a real transaction ID — proof the "autonomy" is doing something, not just animating a progress bar.
+- **Fully auditable, end to end.** Every decision (price drop applied, promo applied, auto-approved under threshold, skipped for exceeding the mandate, refunded) is timestamped with its reasoning in an audit log. The final invoice reports exactly how many orders were autonomous vs. human-approved vs. skipped, and how many settled via a real sandbox call vs. a simulated fallback — never a flat "trust me" summary.
+- **Reversible, not one-way.** A real refund (CyberSource's refund API) is available per confirmed order, mirroring Hyphenate's emphasis on traceable, correctable financial actions.
+
+See `services/payments.ts` (mandate/order logic), `src/CheckoutPanel.tsx` (the autonomous/escalation state machine), and `agents/financeAgent.ts` (the audit narration) for the implementation.
+
 ## Tech stack
 
 - React 19 + Vite 8 + TypeScript, Tailwind CSS v4

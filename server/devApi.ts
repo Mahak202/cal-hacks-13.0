@@ -121,7 +121,25 @@ async function agentCommand({ message, context, history }: { message: string; co
 }
 
 async function generateImage({ prompt }: { prompt: string }) {
-  return generateProductImage(prompt)
+  return withImageSlot(() => generateProductImage(prompt))
+}
+
+// The Library grid can mount 40+ product thumbnails at once, each wanting a
+// generated image — Apify's sandbox plan allows only 5 concurrent actor runs,
+// so a simple queue (not a flood of parallel requests) keeps every request
+// under that cap instead of most of them failing with 402.
+const IMAGE_CONCURRENCY = 3
+let imageRunning = 0
+const imageQueue: (() => void)[] = []
+async function withImageSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (imageRunning >= IMAGE_CONCURRENCY) await new Promise<void>((resolve) => imageQueue.push(resolve))
+  imageRunning++
+  try {
+    return await fn()
+  } finally {
+    imageRunning--
+    imageQueue.shift()?.()
+  }
 }
 
 // Keyed by product id so every catalog product is only ever generated once
@@ -129,7 +147,7 @@ async function generateImage({ prompt }: { prompt: string }) {
 const productImageCache = new Map<string, Promise<{ dataUrl: string }>>()
 async function productImage({ id, prompt }: { id: string; prompt: string }) {
   if (!productImageCache.has(id)) {
-    const promise = generateProductImage(prompt)
+    const promise = withImageSlot(() => generateProductImage(prompt))
     promise.catch(() => productImageCache.delete(id)) // don't cache failures
     productImageCache.set(id, promise)
   }
