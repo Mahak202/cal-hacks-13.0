@@ -1,0 +1,13 @@
+# Secrets (agent seed, API keys) live only in the local .env.
+.env
+.env.*
+!.env.example
+
+node_modules/
+agent/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# uAgents local key/value storage, written next to the running agent.
+*_data.json
